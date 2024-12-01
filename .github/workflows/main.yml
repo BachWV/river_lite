@@ -33,7 +33,7 @@ jobs:
           flutter-version: '3.22.0'
           cache: true
       - run: flutter pub get
-      - run: flutter build apk --release --target-platform=android-arm64 --no-shrink
+      - run: flutter build apk --obfuscate --split-debug-info=HLQ_Struggle --target-platform android-arm64 --split-per-abi
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
@@ -50,6 +50,9 @@ jobs:
           name: apk
       - name: Display structure of downloaded files
         run: ls -R
+      - name: Get today's date
+        id: date
+        run: echo "DATE=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
   
       - name: Create Release
         id: create_release
@@ -57,8 +60,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: v1.0.12  # 使用 commit id
-          release_name: v1.0.12  # 使用 commit id
+          tag_name: v1.0.12-${{ env.DATE }}  # 使用日期
+          release_name: v1.0.12-${{ env.DATE }}  # 使用日期
       - name: Upload Release APK
         id: upload_release_asset
         uses: actions/upload-release-asset@v1.0.1
@@ -67,7 +70,7 @@ jobs:
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: ./app-release.apk
-          asset_name: RiverLite-app-release.apk
+          asset_name: RiverLite-v1.0.12-${{ env.DATE }}.apk
           asset_content_type: application/zip
 
         
