@@ -1,10 +1,13 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:ui';
 
 import 'package:badges/badges.dart' as badgee;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:in_app_review/in_app_review.dart';
 import 'package:offer_show/asset/autoQuestion.dart';
 import 'package:offer_show/asset/bigScreen.dart';
@@ -32,6 +35,8 @@ class Home extends StatefulWidget {
 
 class _HomeState extends State<Home> {
   bool _isNewMsg = false;
+  Map? _msg;
+  Map? _lastMsg; // 保存上一次的消息状态
   bool _firstBack = false;
   List<int> loadIndex = [];
 
@@ -59,7 +64,79 @@ class _HomeState extends State<Home> {
           ];
   }
 
+  // 初始化通知插件
+  FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
+      FlutterLocalNotificationsPlugin();
+  Timer? _pollingTimer; // 定时器变量，用于轮询
+  // 展示系统通知
+  Future<void> _showNotification(msg) async {
+    const AndroidNotificationDetails androidPlatformChannelSpecifics =
+        AndroidNotificationDetails(
+      'riverlite', // 通道 ID
+      'riverlite', // 通道名称
+      channelDescription: '河畔Lite通知', // 通道描述
+      importance: Importance.max,
+      priority: Priority.high,
+      showWhen: false,
+    );
+    print("展示通知");
+    String notificationMsg = "";
+    int msgtype = 1;
+    if (msg!["atMeInfoCount"] > 0) {
+      notificationMsg += "有" + msg!["atMeInfoCount"].toString() + "条@我的消息\n";
+    } else if (msg!["replyInfoCount"] > 0) {
+      msgtype = 1;
+      notificationMsg += "有" + msg!["replyInfoCount"].toString() + "条回复我的消息\n";
+    } else if (msg!["systemInfoCount"] > 0) {
+      msgtype = 2;
+      notificationMsg += "有" + msg!["systemInfoCount"].toString() + "条系统消息\n";
+    }
+    const NotificationDetails platformChannelSpecifics =
+        NotificationDetails(android: androidPlatformChannelSpecifics);
+
+    await flutterLocalNotificationsPlugin.show(
+      0,
+      '新消息',
+      notificationMsg,
+      platformChannelSpecifics,
+      payload: msgtype.toString(),
+    );
+  }
+
+  _initNotification() async {
+    // 初始化通知配置
+    if (Platform.isAndroid) {
+      AndroidInitializationSettings initializationSettingsAndroid =
+          AndroidInitializationSettings('@mipmap/ic_launcher'); // 确保图标资源存在
+      var initializationSettings =
+          InitializationSettings(android: initializationSettingsAndroid);
+      flutterLocalNotificationsPlugin.initialize(initializationSettings,
+          onDidReceiveNotificationResponse:
+              (NotificationResponse response) async {
+        final payload = response.payload;
+        await Navigator.pushNamed(context, "/msg_three",
+            arguments: int.parse(payload!));
+      });
+      _pollingTimer = Timer.periodic(Duration(seconds: 30), (timer) async {
+        await _getNewMsg();
+        print("轮询");
+        print("msg" + _msg.toString());
+        print("lastmsg:" + _lastMsg.toString());
+        if (_isNewMsg && !mapEquals(_msg, _lastMsg)) {
+          print("showNotification");
+          _showNotification(_msg); // 只有首次或者有更新才进行通知
+          _lastMsg = Map.from(_msg!); // 更新上一次的消息状态
+        }
+      });
+    }
+  }
+
   _getNewMsg() async {
+    _msg = {
+      "atMeInfoCount": 0,
+      "replyInfoCount": 0,
+      "systemInfoCount": 0,
+    };
     var data = await Api().message_heart({});
     var count = 0;
     if (data != null && data["rs"] != 0 && data["body"] != null) {
@@ -67,6 +144,11 @@ class _HomeState extends State<Home> {
       count += int.parse(data["body"]["atMeInfo"]["count"].toString());
       count += int.parse(data["body"]["systemInfo"]["count"].toString());
       count += int.parse(data["body"]["pmInfos"].length.toString());
+      _msg = {
+        "atMeInfoCount": data["body"]["atMeInfo"]["count"],
+        "replyInfoCount": data["body"]["replyInfo"]["count"],
+        "systemInfoCount": data["body"]["systemInfo"]["count"],
+      };
       data = data["body"];
       if (count != 0) {
         setState(() {
@@ -157,6 +239,7 @@ class _HomeState extends State<Home> {
     _getNewMsg();
     _getDarkMode();
     _getBlackStatus();
+    if (Platform.isAndroid) _initNotification();
     popReviewDialog();
     super.initState();
   }
@@ -483,7 +566,7 @@ class _MaterialBottomNavigationBarState
       count += int.parse(data["body"]["replyInfo"]["count"].toString());
       count += int.parse(data["body"]["atMeInfo"]["count"].toString());
       count += int.parse(data["body"]["systemInfo"]["count"].toString());
-      count += int.parse(data["body"]["pmInfos"].length);
+      count += (data["body"]["pmInfos"].length as int);
       data = data["body"];
       if (count != 0) {
         setState(() {
